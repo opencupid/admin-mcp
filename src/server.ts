@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import { createRequire } from 'node:module'
+import express from 'express'
 import type { NextFunction, Request, Response } from 'express'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
@@ -56,16 +57,20 @@ export function createApp(config: Config, client?: AdminClient) {
     client ??
     new AdminClient({ baseUrl: config.ADMIN_API_URL, timeoutMs: config.ADMIN_API_TIMEOUT_MS })
 
-  const app = createMcpExpressApp({
+  const mcpApp = createMcpExpressApp({
     host: config.HOST,
     ...(config.MCP_ALLOWED_HOSTS.length > 0 ? { allowedHosts: config.MCP_ALLOWED_HOSTS } : {}),
   })
 
+  // Registered on the outer app, ahead of the MCP app's Host header validation,
+  // so the image's own HEALTHCHECK (Host: 127.0.0.1) passes when MCP_ALLOWED_HOSTS is set.
+  const app = express()
   app.get('/healthz', (_req, res) => {
     res.json({ status: 'ok' })
   })
+  app.use(mcpApp)
 
-  app.post('/mcp', bearerAuth(config.MCP_AUTH_TOKEN), async (req, res) => {
+  mcpApp.post('/mcp', bearerAuth(config.MCP_AUTH_TOKEN), async (req, res) => {
     const server = createMcpServer(config, adminClient)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
     res.on('close', () => {
@@ -86,8 +91,8 @@ export function createApp(config: Config, client?: AdminClient) {
       }
     }
   })
-  app.get('/mcp', methodNotAllowed)
-  app.delete('/mcp', methodNotAllowed)
+  mcpApp.get('/mcp', methodNotAllowed)
+  mcpApp.delete('/mcp', methodNotAllowed)
 
   return app
 }

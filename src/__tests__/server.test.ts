@@ -68,6 +68,29 @@ describe('MCP server', () => {
     expect(await res.json()).toEqual({ status: 'ok' })
   })
 
+  it('serves the health check regardless of MCP_ALLOWED_HOSTS', async () => {
+    const restricted = await startServer(
+      loadConfig({
+        ADMIN_API_URL: 'http://backend:3000/api/admin',
+        MCP_AUTH_TOKEN: TOKEN,
+        MCP_ALLOWED_HOSTS: 'mcp.example.org',
+        HOST: '127.0.0.1',
+      })
+    )
+    try {
+      const health = await fetch(`${restricted.url}/healthz`)
+      expect(health.status).toBe(200)
+      const mcp = await fetch(`${restricted.url}/mcp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+        body: '{}',
+      })
+      expect(mcp.status).toBe(403)
+    } finally {
+      await new Promise<void>((resolve) => restricted.httpServer.close(() => resolve()))
+    }
+  })
+
   it('rejects requests without a valid bearer token', async () => {
     const res = await fetch(`${url}/mcp`, {
       method: 'POST',
